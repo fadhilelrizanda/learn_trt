@@ -104,6 +104,10 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     # Set input shape explicitly
                     context.set_binding_shape(0, input_batch.shape)
                     
+                    if not context.all_binding_shapes_specified:
+                        print("Error: Not all binding shapes are specified.")
+                        return
+                    
                     cuda.memcpy_htod_async(input_memory, input_batch, stream)
                     context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
                     cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
