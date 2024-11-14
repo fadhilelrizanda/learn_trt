@@ -37,6 +37,10 @@ def infer(engine_file_path, input_file, output_file):
     
     with engine.create_execution_context() as context:
         bindings = []
+        input_memory = None
+        output_memory = None
+        output_buffer = None
+
         for binding in range(engine.num_bindings):
             size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
             dtype = trt.nptype(engine.get_binding_dtype(binding))
