@@ -16,13 +16,12 @@ def preprocess_image(image_path, image_height, image_width):
     image = np.expand_dims(image, axis=0)  # Add batch dimension
     return image
 
-# Postprocess the output image
-def postprocess_image(output, image_height, image_width):
-    output = np.squeeze(output)  # Remove batch dimension
-    output = np.transpose(output, (1, 2, 0))  # CHW to HWC
-    output = output * 255.0
-    output = output.astype(np.uint8)
-    output = cv2.cvtColor(output, cv2.COLOR_RGB2BGR)
+# Postprocess the output tensor
+def postprocess_output(output, image_height, image_width):
+    # Assuming the output is a tensor with shape (batch_size, num_boxes, 7)
+    # where each box has 7 values: [x, y, w, h, conf, class_id, ...]
+    print(f"Output : {output.shape}")
+    output = np.reshape(output, (-1, 7))
     return output
 
 def load_engine(engine_file_path):
@@ -38,7 +37,7 @@ def infer(engine_file_path, input_file, output_file):
     
     with engine.create_execution_context() as context:
         bindings = []
-        for binding in engine:
+        for binding in range(engine.num_bindings):
             size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
             dtype = trt.nptype(engine.get_binding_dtype(binding))
             
@@ -60,10 +59,13 @@ def infer(engine_file_path, input_file, output_file):
         stream.synchronize()
         output_d64 = np.array(output_buffer, dtype=np.float32)
 
-        output_image = postprocess_image(output_d64, image_height, image_width)
-        cv2.imwrite(output_file, output_image)
+        output_tensor = postprocess_output(output_d64, image_height, image_width)
+        print("Output tensor:", output_tensor)
+        
+        # Save the output tensor to a file
+        np.save(output_file, output_tensor)
         
 if __name__ == "__main__":
-    image_height = 224
-    image_width = 224
-    infer("./model.trt", "./prediksi4.jpg", "out1.jpg")
+    image_height = 416
+    image_width = 416
+    infer("./model.trt", "./prediksi4.jpg", "out1.npy")
