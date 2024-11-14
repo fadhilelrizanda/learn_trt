@@ -33,11 +33,12 @@ def preprocess(img):
 def load_engine(engine_file_path):
     assert os.path.exists(engine_file_path)
     print("Reading engine from file {}".format(engine_file_path))
-    with open(engine_file_path,"rb") as f, trt.Runtime(TRT_LOGGER) as runtime:
+    with open(engine_file_path, "rb") as f, trt.Runtime(trt.Logger(trt.Logger.WARNING)) as runtime:
         return runtime.deserialize_cuda_engine(f.read())
     
-def infer(engine,input_file,output_file):
-    print("Reading input image from file{}".format(input_file))
+def infer(engine_file_path, input_file, output_file):
+    engine = load_engine(engine_file_path)
+    print("Reading input image from file {}".format(input_file))
     input_image = preprocess_image(input_file, image_height, image_width)
     
     with engine.create_execution_context() as context:
@@ -47,17 +48,17 @@ def infer(engine,input_file,output_file):
             dtype = trt.nptype(engine.get_tensor_dtype(tensor))
             
             if engine.get_tensor_mode(tensor) == trt.TensorIOMode.INPUT:
-                context.set_input_shape(tensor,(1,3,image_height,image_width))
+                context.set_input_shape(tensor, (1, 3, image_height, image_width))
                 input_buffer = np.ascontiguousarray(input_image)
                 input_memory = cuda.mem_alloc(input_image.nbytes)
-                context.set_tensor_address(tensor,int(input_memory))
+                context.set_tensor_address(tensor, int(input_memory))
             else:
-                output_buffer = cuda.pagelocked_empty(size,dtype)
+                output_buffer = cuda.pagelocked_empty(size, dtype)
                 output_memory = cuda.mem_alloc(output_buffer.nbytes)
-                context.set_tensor_address(tensor,int(output_memory))
+                context.set_tensor_address(tensor, int(output_memory))
                 
         stream = cuda.Stream()
-        cuda.memcpy_htod_async(input_memory,input_buffer,stream)
+        cuda.memcpy_htod_async(input_memory, input_buffer, stream)
         context.execute_async_v3(stream_handle=stream.handle)
         cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
         
@@ -67,3 +68,8 @@ def infer(engine,input_file,output_file):
 
         output_image = postprocess_image(output_d64, image_height, image_width)
         cv2.imwrite(output_file, output_image)
+        
+if __name__ == "__main__":
+    image_height = 224
+    image_width = 224
+    infer("./model.engine", "./prediksi4.jpg", "out1.jpg")
