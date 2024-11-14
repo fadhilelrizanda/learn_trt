@@ -20,7 +20,7 @@ def preprocess_image(image_path, image_height, image_width):
 def postprocess_output(output, image_height, image_width):
     # Assuming the output is a tensor with shape (batch_size, num_boxes, 7)
     # where each box has 7 values: [x, y, w, h, conf, class_id, ...]
-    print(f"Output : {output.shape}")
+    print(f"Output shape: {output.shape}")
     output = np.reshape(output, (-1, 7))
     return output
 
@@ -40,15 +40,18 @@ def infer(engine_file_path, input_file, output_file):
         for binding in range(engine.num_bindings):
             size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
             dtype = trt.nptype(engine.get_binding_dtype(binding))
+            print(f"Binding {binding}: size={size}, dtype={dtype}")
             
             if engine.binding_is_input(binding):
                 input_buffer = np.ascontiguousarray(input_image)
                 input_memory = cuda.mem_alloc(input_image.nbytes)
                 bindings.append(int(input_memory))
+                print(f"Input binding: {binding}, shape={input_image.shape}, size={input_image.nbytes}")
             else:
                 output_buffer = cuda.pagelocked_empty(size, dtype)
                 output_memory = cuda.mem_alloc(output_buffer.nbytes)
                 bindings.append(int(output_memory))
+                print(f"Output binding: {binding}, shape={output_buffer.shape}, size={output_buffer.nbytes}")
                 
         stream = cuda.Stream()
         try:
