@@ -71,4 +71,4 @@ def infer(engine_file_path, input_file, output_file):
 if __name__ == "__main__":
     image_height = 224
     image_width = 224
-    infer("./test_static.engine", "./prediksi4.jpg", "out1.jpg")
+    infer("./model.trt", "./prediksi4.jpg", "out1.jpg")
