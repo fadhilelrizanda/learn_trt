@@ -28,7 +28,7 @@ def load_engine(engine_file_path):
     with open(engine_file_path, "rb") as f, trt.Runtime(trt.Logger(trt.Logger.WARNING)) as runtime:
         return runtime.deserialize_cuda_engine(f.read())
 
-def infer_video(engine_file_path, input_video, output_video):
+def infer_video(engine_file_path, input_video, output_video, batch_size):
     engine = load_engine(engine_file_path)
     cap = cv2.VideoCapture(input_video)
     if not cap.isOpened():
@@ -49,7 +49,7 @@ def infer_video(engine_file_path, input_video, output_video):
         output_buffer = None
 
         for binding in range(engine.num_bindings):
-            size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
+            size = trt.volume(engine.get_binding_shape(binding)) * batch_size
             dtype = trt.nptype(engine.get_binding_dtype(binding))
             print(f"Binding {binding}: size={size}, dtype={dtype}")
             
@@ -63,28 +63,36 @@ def infer_video(engine_file_path, input_video, output_video):
                 
         stream = cuda.Stream()
         try:
+            frames = []
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
                     break
                 
                 input_frame = preprocess_frame(frame, image_height, image_width)
-                input_frame = np.ascontiguousarray(input_frame)  # Ensure the array is contiguous
-                print(f"Input frame shape: {input_frame.shape}")
-                cuda.memcpy_htod_async(input_memory, input_frame, stream)
-                context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
-                cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
+                frames.append(input_frame)
                 
-                # Synchronize the stream
-                stream.synchronize()
-                output_d64 = np.array(output_buffer, dtype=np.float32)
-                print(f"Output buffer shape: {output_d64.shape}")
-                output_tensor = postprocess_output(output_d64)
-                print("Output tensor:", output_tensor)
-                
-                # Here you can add code to draw bounding boxes on the frame based on output_tensor
-                # For simplicity, we will just write the original frame to the output video
-                out.write(frame)
+                if len(frames) == batch_size:
+                    input_batch = np.vstack(frames)
+                    input_batch = np.ascontiguousarray(input_batch)  # Ensure the array is contiguous
+                    print(f"Input batch shape: {input_batch.shape}")
+                    cuda.memcpy_htod_async(input_memory, input_batch, stream)
+                    context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
+                    cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
+                    
+                    # Synchronize the stream
+                    stream.synchronize()
+                    output_d64 = np.array(output_buffer, dtype=np.float32)
+                    print(f"Output buffer shape: {output_d64.shape}")
+                    output_tensor = postprocess_output(output_d64)
+                    print("Output tensor:", output_tensor)
+                    
+                    # Here you can add code to draw bounding boxes on the frame based on output_tensor
+                    # For simplicity, we will just write the original frame to the output video
+                    for f in frames:
+                        out.write(f)
+                    
+                    frames = []
                 
         except cuda.Error as e:
             print(f"CUDA Error: {e}")
@@ -95,4 +103,5 @@ def infer_video(engine_file_path, input_video, output_video):
 if __name__ == "__main__":
     image_height = 416
     image_width = 416
-    infer_video("./model.trt", "./video_1.MP4", "./output_video.avi")
+    batch_size = 5  # Set the batch size to match your model's expected batch size
+    infer_video("./model.trt", "./video_1.MP4", "./output_video.avi", batch_size)
