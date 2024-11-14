@@ -158,6 +158,6 @@ def load_labels(label_file):
 if __name__ == "__main__":
     image_height = 416
     image_width = 416
-    batch_size = 1  # Set the batch size to match your model's expected batch size
+    batch_size = 4  # Increase the batch size to improve GPU utilization
     labels = load_labels("obj.names")
     infer_video("./dynamic_tsr_model.trt", "./video_1.MP4", "./output_video.avi", batch_size, labels)
