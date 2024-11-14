@@ -63,10 +63,17 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
         output_buffer = None
 
         for binding in range(engine.num_bindings):
-            size = trt.volume(engine.get_binding_shape(binding)) * batch_size
+            shape = engine.get_binding_shape(binding)
+            print(f"Binding {binding} shape: {shape}")
+            if shape[0] == -1:
+                shape[0] = batch_size  # Set dynamic batch size
+            size = trt.volume(shape)
             dtype = trt.nptype(engine.get_binding_dtype(binding))
             print(f"Binding {binding}: size={size}, dtype={dtype}")
             
+            if size < 0:
+                raise ValueError(f"Invalid size {size} for binding {binding}")
+
             if engine.binding_is_input(binding):
                 input_memory = cuda.mem_alloc(size * np.dtype(dtype).itemsize)
                 bindings.append(int(input_memory))
