@@ -3,7 +3,6 @@ import os
 import pycuda.driver as cuda
 import pycuda.autoinit
 import tensorrt as trt 
-import matplotlib.pyplot as plt
 import cv2
 
 TRT_LOGGER = trt.Logger()
