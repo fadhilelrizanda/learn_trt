@@ -67,14 +67,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
 
     with engine.create_execution_context() as context:
         context.profiler = trt.Profiler()
-    # Check if there are multiple profiles
-        num_profiles = engine.num_optimization_profiles
-        print(f"Number of optimization profiles: {num_profiles}")
-        
-    # Assuming we use the first optimization profile (index 0)
-        profile_index = 0
-        context.set_optimization_profile_async(profile_index, stream.handle)
-        
+
         input_memory = None
         output_memory = None
         output_buffer = None
@@ -120,6 +113,14 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     print(f"Input batch shape: {input_batch.shape}")
                     
                     # Set input shape explicitly
+                        # Check if there are multiple profiles
+                    num_profiles = engine.num_optimization_profiles
+                    print(f"Number of optimization profiles: {num_profiles}")
+        
+                    # Assuming we use the first optimization profile (index 0)
+                    profile_index = 0
+                    context.set_optimization_profile_async(profile_index, stream.handle)
+        
                     context.set_binding_shape(0, input_batch.shape)
                     
                     if not context.all_binding_shapes_specified:
