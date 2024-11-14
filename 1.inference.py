@@ -34,7 +34,7 @@ def infer(engine_file_path, input_file, output_file):
     engine = load_engine(engine_file_path)
     print("Reading input image from file {}".format(input_file))
     input_image = preprocess_image(input_file, image_height, image_width)
-    
+    print(f"Input image shape after preprocessing: {input_image.shape}")
     with engine.create_execution_context() as context:
         bindings = []
         input_memory = None
