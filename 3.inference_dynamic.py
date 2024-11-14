@@ -66,6 +66,8 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
     out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
 
     with engine.create_execution_context() as context:
+        context.profiler = trt.Profiler()
+
         input_memory = None
         output_memory = None
         output_buffer = None
