@@ -70,6 +70,7 @@ def infer_video(engine_file_path, input_video, output_video):
                 
                 input_frame = preprocess_frame(frame, image_height, image_width)
                 input_frame = np.ascontiguousarray(input_frame)  # Ensure the array is contiguous
+                print(f"Input frame shape: {input_frame.shape}")
                 cuda.memcpy_htod_async(input_memory, input_frame, stream)
                 context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
                 cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
@@ -77,6 +78,7 @@ def infer_video(engine_file_path, input_video, output_video):
                 # Synchronize the stream
                 stream.synchronize()
                 output_d64 = np.array(output_buffer, dtype=np.float32)
+                print(f"Output buffer shape: {output_d64.shape}")
                 output_tensor = postprocess_output(output_d64)
                 print("Output tensor:", output_tensor)
                 
