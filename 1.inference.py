@@ -6,15 +6,17 @@ import cv2
 import os
 
 # Preprocess the input image
-def preprocess_image(image_path, image_height, image_width):
+def preprocess_image(image_path, image_height, image_width, batch_size=5):
     image = cv2.imread(image_path)
     image = cv2.resize(image, (image_width, image_height))
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = image.astype(np.float32)
-    image = image / 255.0
+    image = image.astype(np.float32) / 255.0
     image = np.transpose(image, (2, 0, 1))  # HWC to CHW
     image = np.expand_dims(image, axis=0)  # Add batch dimension
-    return image
+    # Duplicate the image to create a batch of 5
+    batch_image = np.tile(image, (batch_size, 1, 1, 1))
+    return batch_image
+
 
 # Postprocess the output tensor
 def postprocess_output(output, image_height, image_width):
@@ -33,8 +35,8 @@ def load_engine(engine_file_path):
 def infer(engine_file_path, input_file, output_file):
     engine = load_engine(engine_file_path)
     print(f"Reading input image from file {input_file}")
-    input_image = preprocess_image(input_file, image_height, image_width)
-    print(f"Input image shape after preprocessing: {input_image.shape}")
+    input_image = preprocess_image(input_file, image_height, image_width, batch_size=5)
+    print(f"Input image shape after preprocessing: {input_image.shape}")  # Should print (5, 3, 416, 416)
     
     with engine.create_execution_context() as context:
         # Set explicit batch size if supported
