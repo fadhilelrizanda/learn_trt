@@ -42,7 +42,16 @@ def load_engine(engine_file_path):
     with open(engine_file_path, "rb") as f, trt.Runtime(trt.Logger(trt.Logger.WARNING)) as runtime:
         return runtime.deserialize_cuda_engine(f.read())
 
+# Initialize variables outside the function
+host_inputs = []
+cuda_inputs = []
+host_outputs = []
+cuda_outputs = []
+bindings = []
+
 def infer_video(engine_file_path, input_video, output_video, batch_size, labels):
+    global host_inputs, cuda_inputs, host_outputs, cuda_outputs, bindings
+
     engine = load_engine(engine_file_path)
     cap = cv2.VideoCapture(input_video)
     if not cap.isOpened():
@@ -57,7 +66,6 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
     out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
 
     with engine.create_execution_context() as context:
-        bindings = []
         input_memory = None
         output_memory = None
         output_buffer = None
@@ -75,12 +83,13 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                 raise ValueError(f"Invalid size {size} for binding {binding}")
 
             if engine.binding_is_input(binding):
-                input_memory = cuda.mem_alloc(size * np.dtype(dtype).itemsize)
-                bindings.append(int(input_memory))
+                host_inputs.append(np.empty(size, dtype=dtype))
+                cuda_inputs.append(cuda.mem_alloc(host_inputs[-1].nbytes))
+                bindings.append(int(cuda_inputs[-1]))
             else:
-                output_buffer = cuda.pagelocked_empty(size, dtype)
-                output_memory = cuda.mem_alloc(output_buffer.nbytes)
-                bindings.append(int(output_memory))
+                host_outputs.append(np.empty(size, dtype=dtype))
+                cuda_outputs.append(cuda.mem_alloc(host_outputs[-1].nbytes))
+                bindings.append(int(cuda_outputs[-1]))
                 
         stream = cuda.Stream()
         try:
@@ -108,13 +117,13 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                         print("Error: Not all binding shapes are specified.")
                         return
                     
-                    cuda.memcpy_htod_async(input_memory, input_batch, stream)
+                    cuda.memcpy_htod_async(cuda_inputs[0], input_batch, stream)
                     context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
-                    cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
+                    cuda.memcpy_dtoh_async(host_outputs[0], cuda_outputs[0], stream)
                     
                     # Synchronize the stream
                     stream.synchronize()
-                    output_d64 = np.array(output_buffer, dtype=np.float32)
+                    output_d64 = np.array(host_outputs[0], dtype=np.float32)
                     print(f"Output buffer shape: {output_d64.shape}")
                     output_tensor = postprocess_output(output_d64)
                     print("Output tensor:", output_tensor)
@@ -140,10 +149,15 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
         finally:
             cap.release()
             out.release()
+
+def load_labels(label_file):
+    with open(label_file, 'r') as f:
+        labels = f.read().strip().split('\n')
+    return labels
         
 if __name__ == "__main__":
     image_height = 416
     image_width = 416
     batch_size = 1  # Set the batch size to match your model's expected batch size
-    labels = ["person", "bicycle", "car", "motorbike", "aeroplane", "bus", "train", "truck", "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "sofa", "pottedplant", "bed", "diningtable", "toilet", "tvmonitor", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"]
+    labels = load_labels("obj.names")
     infer_video("./dynamic_tsr_model.trt", "./video_1.MP4", "./output_video.avi", batch_size, labels)
