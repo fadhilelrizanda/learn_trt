@@ -51,19 +51,22 @@ def infer(engine_file_path, input_file, output_file):
                 bindings.append(int(output_memory))
                 
         stream = cuda.Stream()
-        cuda.memcpy_htod_async(input_memory, input_buffer, stream)
-        context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
-        cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
-        
-        # Synchronize the stream
-        stream.synchronize()
-        output_d64 = np.array(output_buffer, dtype=np.float32)
+        try:
+            cuda.memcpy_htod_async(input_memory, input_buffer, stream)
+            context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
+            cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
+            
+            # Synchronize the stream
+            stream.synchronize()
+            output_d64 = np.array(output_buffer, dtype=np.float32)
 
-        output_tensor = postprocess_output(output_d64, image_height, image_width)
-        print("Output tensor:", output_tensor)
-        
-        # Save the output tensor to a file
-        np.save(output_file, output_tensor)
+            output_tensor = postprocess_output(output_d64, image_height, image_width)
+            print("Output tensor:", output_tensor)
+            
+            # Save the output tensor to a file
+            np.save(output_file, output_tensor)
+        except cuda.Error as e:
+            print(f"CUDA Error: {e}")
         
 if __name__ == "__main__":
     image_height = 416
