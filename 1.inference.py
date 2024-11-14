@@ -32,17 +32,18 @@ def load_engine(engine_file_path):
 
 def infer(engine_file_path, input_file, output_file):
     engine = load_engine(engine_file_path)
-    print("Reading input image from file {}".format(input_file))
+    print(f"Reading input image from file {input_file}")
     input_image = preprocess_image(input_file, image_height, image_width)
     print(f"Input image shape after preprocessing: {input_image.shape}")
+    
     with engine.create_execution_context() as context:
         bindings = []
         input_memory = None
-        output_memory = None
-        output_buffer = None
+        output_memories = []
+        output_buffers = []
 
         for binding in range(engine.num_bindings):
-            size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
+            size = trt.volume(engine.get_binding_shape(binding))
             dtype = trt.nptype(engine.get_binding_dtype(binding))
             print(f"Binding {binding}: size={size}, dtype={dtype}")
             
@@ -54,26 +55,39 @@ def infer(engine_file_path, input_file, output_file):
             else:
                 output_buffer = cuda.pagelocked_empty(size, dtype)
                 output_memory = cuda.mem_alloc(output_buffer.nbytes)
+                output_buffers.append(output_buffer)
+                output_memories.append(output_memory)
                 bindings.append(int(output_memory))
                 print(f"Output binding: {binding}, shape={output_buffer.shape}, size={output_buffer.nbytes}")
                 
         stream = cuda.Stream()
         try:
+            # Transfer input data to the GPU
+            print("Transferring input data to GPU.")
             cuda.memcpy_htod_async(input_memory, input_buffer, stream)
+            
+            # Run inference
+            print("Executing inference.")
             context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
-            cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
             
-            # Synchronize the stream
+            # Transfer predictions back from the GPU for each output
+            print("Transferring output data from GPU.")
+            for output_memory, output_buffer in zip(output_memories, output_buffers):
+                cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
+            
+            # Synchronize the stream to ensure all operations are complete
             stream.synchronize()
-            output_d64 = np.array(output_buffer, dtype=np.float32)
-
-            output_tensor = postprocess_output(output_d64, image_height, image_width)
-            print("Output tensor:", output_tensor)
             
-            # Save the output tensor to a file
-            np.save(output_file, output_tensor)
+            # Process each output tensor separately
+            output_tensors = [postprocess_output(buffer, image_height, image_width) for buffer in output_buffers]
+            for i, output_tensor in enumerate(output_tensors):
+                print(f"Output tensor {i}:", output_tensor)
+                # Save each output tensor to a separate file if needed
+                np.save(f"{output_file}_output_{i}.npy", output_tensor)
+                
         except cuda.Error as e:
             print(f"CUDA Error: {e}")
+
         
 if __name__ == "__main__":
     image_height = 416
