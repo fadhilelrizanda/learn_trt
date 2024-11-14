@@ -67,7 +67,14 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
 
     with engine.create_execution_context() as context:
         context.profiler = trt.Profiler()
-
+    # Check if there are multiple profiles
+        num_profiles = engine.num_optimization_profiles
+        print(f"Number of optimization profiles: {num_profiles}")
+        
+    # Assuming we use the first optimization profile (index 0)
+        profile_index = 0
+        context.set_optimization_profile_async(profile_index, stream.handle)
+        
         input_memory = None
         output_memory = None
         output_buffer = None
@@ -160,6 +167,6 @@ def load_labels(label_file):
 if __name__ == "__main__":
     image_height = 416
     image_width = 416
-    batch_size = 8  # Increase the batch size to improve GPU utilization
+    batch_size = 1  # Increase the batch size to improve GPU utilization
     labels = load_labels("obj.names")
     infer_video("./dynamic_tsr_model.trt", "./video_1.MP4", "./output_video.avi", batch_size, labels)
