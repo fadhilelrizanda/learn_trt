@@ -92,4 +92,4 @@ def infer_video(engine_file_path, input_video, output_video):
 if __name__ == "__main__":
     image_height = 416
     image_width = 416
-    infer_video("./model.trt", "./video1.MP4", "./output_video.avi")
+    infer_video("./model.trt", "./video_1.MP4", "./output_video.avi")
