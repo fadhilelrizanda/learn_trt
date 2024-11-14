@@ -100,6 +100,10 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     input_batch = np.vstack(frames)
                     input_batch = np.ascontiguousarray(input_batch)  # Ensure the array is contiguous
                     print(f"Input batch shape: {input_batch.shape}")
+                    
+                    # Set input shape explicitly
+                    context.set_binding_shape(0, input_batch.shape)
+                    
                     cuda.memcpy_htod_async(input_memory, input_batch, stream)
                     context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
                     cuda.memcpy_dtoh_async(output_buffer, output_memory, stream)
@@ -113,6 +117,9 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     
                     # Draw bounding boxes on the frames
                     for f in frames:
+                        f = np.transpose(f[0], (1, 2, 0))  # CHW to HWC
+                        f = (f * 255).astype(np.uint8)
+                        f = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
                         draw_boxes(f, output_tensor, labels)
                         out.write(f)
                     
