@@ -37,15 +37,20 @@ def infer(engine_file_path, input_file, output_file):
     print(f"Input image shape after preprocessing: {input_image.shape}")
     
     with engine.create_execution_context() as context:
+        # Set explicit batch size if supported
+        context.set_binding_shape(0, input_image.shape)
+        
         bindings = []
         input_memory = None
         output_memories = []
         output_buffers = []
 
         for binding in range(engine.num_bindings):
-            size = trt.volume(engine.get_binding_shape(binding))
+            # Use trt.volume and binding shape to get the exact size needed
+            shape = context.get_binding_shape(binding)
+            size = trt.volume(shape)
             dtype = trt.nptype(engine.get_binding_dtype(binding))
-            print(f"Binding {binding}: size={size}, dtype={dtype}")
+            print(f"Binding {binding} (Name: {engine.get_binding_name(binding)}): Shape={shape}, Size={size}, Dtype={dtype}")
             
             if engine.binding_is_input(binding):
                 input_buffer = np.ascontiguousarray(input_image)
@@ -68,7 +73,11 @@ def infer(engine_file_path, input_file, output_file):
             
             # Run inference
             print("Executing inference.")
-            context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
+            try:
+                context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
+            except Exception as e:
+                print(f"Inference execution failed: {e}")
+                return
             
             # Transfer predictions back from the GPU for each output
             print("Transferring output data from GPU.")
