@@ -6,14 +6,26 @@ import cv2
 import os
 import time
 
-# Preprocess the input frame
-def preprocess_frame(frame, image_height, image_width):
-    frame = cv2.resize(frame, (image_width, image_height))
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+def preprocess_frame_cuda(frame, image_height, image_width):
+    # Upload the frame to the GPU
+    gpu_frame = cv2.cuda_GpuMat()
+    gpu_frame.upload(frame)
+    
+    # Resize on the GPU
+    gpu_resized = cv2.cuda.resize(gpu_frame, (image_width, image_height))
+    
+    # Convert color space on the GPU (BGR to RGB)
+    gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
+    
+    # Download the processed image back to the host (if TensorRT expects host memory)
+    frame = gpu_rgb.download()
+    
+    # Normalize and prepare tensor
     frame = frame.astype(np.float32)
     frame = frame / 255.0
     frame = np.transpose(frame, (2, 0, 1))  # HWC to CHW
     frame = np.expand_dims(frame, axis=0)  # Add batch dimension
+    
     return frame
 
 # Postprocess the output tensor to extract bounding boxes
@@ -66,8 +78,6 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
     out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
 
     with engine.create_execution_context() as context:
-        context.profiler = trt.Profiler()
-
         input_memory = None
         output_memory = None
         output_buffer = None
@@ -113,19 +123,19 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     print(f"Input batch shape: {input_batch.shape}")
                     
                     # Set input shape explicitly
-                        # Check if there are multiple profiles
+                    context.set_binding_shape(0, input_batch.shape)
+                    
+                    if not context.all_binding_shapes_specified:
+                        print("Error: Not all binding shapes are specified.")
+                        return
+                    
+                    # Check if there are multiple profiles
                     num_profiles = engine.num_optimization_profiles
                     print(f"Number of optimization profiles: {num_profiles}")
         
                     # Assuming we use the first optimization profile (index 0)
                     profile_index = 0
                     context.set_optimization_profile_async(profile_index, stream.handle)
-        
-                    context.set_binding_shape(0, input_batch.shape)
-                    
-                    if not context.all_binding_shapes_specified:
-                        print("Error: Not all binding shapes are specified.")
-                        return
                     
                     cuda.memcpy_htod_async(cuda_inputs[0], input_batch, stream)
                     context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
@@ -134,9 +144,9 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     # Synchronize the stream
                     stream.synchronize()
                     output_d64 = np.array(host_outputs[0], dtype=np.float32)
-                    print(f"Output buffer shape: {output_d64.shape}")
+                    # print(f"Output buffer shape: {output_d64.shape}")
                     output_tensor = postprocess_output(output_d64)
-                    print("Output tensor:", output_tensor)
+                    # print("Output tensor:", output_tensor)
                     
                     # Draw bounding boxes on the frames
                     for f in frames:
