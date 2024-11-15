@@ -16,11 +16,14 @@ def preprocess_frame_cuda(frame, image_height, image_width):
     gpu_resized = cv2.cuda.resize(gpu_frame, (image_width, image_height))
     gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
 
-    # Normalize by dividing by 255 and convert to float32
-    gpu_rgb = gpu_rgb.convertTo(cv2.CV_32F, 1/255.0)
+    # Create an output GpuMat for the normalized frame
+    gpu_normalized = cv2.cuda_GpuMat(gpu_rgb.size(), cv2.CV_32F)
+
+    # Normalize by dividing by 255 and convert to float32 using alpha and beta
+    gpu_rgb.convertTo(gpu_normalized, cv2.CV_32F, 1/255.0, 0.0)  # alpha=1/255.0, beta=0
 
     # Split channels for CHW format
-    gpu_channels = cv2.cuda.split(gpu_rgb)
+    gpu_channels = cv2.cuda.split(gpu_normalized)
     return cv2.cuda.merge(gpu_channels)  # Return in CHW format as a single GpuMat
 
 # Postprocess the output tensor to extract bounding boxes
