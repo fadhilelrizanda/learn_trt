@@ -6,8 +6,8 @@ import cv2
 import os
 import time
 
-def preprocess_frame_gpu(frame, image_height, image_width):
-    # Upload the frame to GPU
+def preprocess_frame(frame, image_height, image_width):
+    # Upload the frame to the GPU
     gpu_frame = cv2.cuda_GpuMat()
     gpu_frame.upload(frame)
     
@@ -17,18 +17,21 @@ def preprocess_frame_gpu(frame, image_height, image_width):
     # Convert color space on the GPU (BGR to RGB)
     gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
     
-    # Normalize on the GPU (divide by 255)
-    gpu_normalized = cv2.cuda.divide(gpu_rgb, 255.0)
+    # Download the processed image back to the host (if TensorRT expects host memory)
+    frame = gpu_rgb.download()
     
-    # Rearrange dimensions (HWC -> CHW)
-    gpu_transposed = cv2.cuda_GpuMat(image_height, image_width, cv2.CV_32FC3)
-    cv2.cuda.transpose(gpu_normalized, gpu_transposed)
+    # Normalize and prepare tensor
+    frame = frame.astype(np.float32)
+    frame = frame / 255.0
+    frame = np.transpose(frame, (2, 0, 1))  # HWC to CHW
+    frame = np.expand_dims(frame, axis=0)  # Add batch dimension
     
-    return gpu_transposed  # GPU tensor stays on the GPU
+    return frame
 
 # Postprocess the output tensor to extract bounding boxes
 def postprocess_output(output, conf_threshold=0.5):
     # Assuming the output is a tensor with shape (batch_size, num_boxes, 7)
+    # where each box has 7 values: [x, y, w, h, conf, class_id, ...]
     output = np.reshape(output, (-1, 7))
     boxes = []
     for detection in output:
@@ -52,12 +55,14 @@ def load_engine(engine_file_path):
         return runtime.deserialize_cuda_engine(f.read())
 
 # Initialize variables outside the function
+host_inputs = []
+cuda_inputs = []
 host_outputs = []
 cuda_outputs = []
 bindings = []
 
 def infer_video(engine_file_path, input_video, output_video, batch_size, labels):
-    global host_outputs, cuda_outputs, bindings
+    global host_inputs, cuda_inputs, host_outputs, cuda_outputs, bindings
 
     engine = load_engine(engine_file_path)
     cap = cv2.VideoCapture(input_video)
@@ -71,25 +76,37 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
-    
+    print(fps)
+
+    # Check if VideoWriter is opened successfully
     if not out.isOpened():
         print("Error: Could not open VideoWriter.")
         return
 
     with engine.create_execution_context() as context:
+        input_memory = None
+        output_memory = None
+        output_buffer = None
+
         for binding in range(engine.num_bindings):
             shape = engine.get_binding_shape(binding)
+            print(f"Binding {binding} shape: {shape}")
             if shape[0] == -1:
                 shape[0] = batch_size  # Set dynamic batch size
             size = trt.volume(shape)
             dtype = trt.nptype(engine.get_binding_dtype(binding))
+            print(f"Binding {binding}: size={size}, dtype={dtype}")
             
+            if size < 0:
+                raise ValueError(f"Invalid size {size} for binding {binding}")
+
             if engine.binding_is_input(binding):
-                cuda_inputs = []
-                bindings.append(cuda.mem_alloc(size * np.dtype(dtype).itemsize))
+                host_inputs.append(np.empty(size, dtype=dtype))
+                cuda_inputs.append(cuda.mem_alloc(host_inputs[-1].nbytes))
+                bindings.append(int(cuda_inputs[-1]))
             else:
                 host_outputs.append(np.empty(size, dtype=dtype))
-                cuda_outputs.append(cuda.mem_alloc(size * np.dtype(dtype).itemsize))
+                cuda_outputs.append(cuda.mem_alloc(host_outputs[-1].nbytes))
                 bindings.append(int(cuda_outputs[-1]))
                 
         stream = cuda.Stream()
@@ -107,32 +124,43 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                 if frame.shape[1] != width or frame.shape[0] != height:
                     frame = cv2.resize(frame, (width, height))
 
-                gpu_frame = preprocess_frame_gpu(frame, image_height, image_width)
-                frames.append(gpu_frame)
-
+                input_frame = preprocess_frame(frame, image_height, image_width)
+                frames.append(input_frame)
+                
                 if len(frames) == batch_size:
-                    for i, gpu_frame in enumerate(frames):
-                        cuda.memcpy_htod_async(bindings[0], gpu_frame.cudaPtr(), stream)
-
+                    input_batch = np.vstack(frames)
+                    input_batch = np.ascontiguousarray(input_batch)  # Ensure the array is contiguous
+                    print(f"Input batch shape: {input_batch.shape}")
+                    
                     # Set input shape explicitly
-                    context.set_binding_shape(0, (batch_size, 3, image_height, image_width))
-
-                    # Execute inference
+                    context.set_binding_shape(0, input_batch.shape)
+                    
+                    if not context.all_binding_shapes_specified:
+                        print("Error: Not all binding shapes are specified.")
+                        return
+                    
+                    cuda.memcpy_htod_async(cuda_inputs[0], input_batch, stream)
                     context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
-
-                    # Retrieve and process output
                     cuda.memcpy_dtoh_async(host_outputs[0], cuda_outputs[0], stream)
+                    
+                    # Synchronize the stream
                     stream.synchronize()
-
-                    output_tensor = postprocess_output(host_outputs[0])
+                    output_d64 = np.array(host_outputs[0], dtype=np.float32)
+                    output_tensor = postprocess_output(output_d64)
 
                     # Draw bounding boxes and write frames to the video
                     for f in frames:
-                        f_host = f.download()
-                        f_host = (f_host * 255).astype(np.uint8)
-                        f_host = cv2.cvtColor(f_host, cv2.COLOR_RGB2BGR)
-                        f_host = draw_boxes(f_host, output_tensor, labels)
-                        out.write(f_host)  # Write to the video file
+                        f = np.transpose(f[0], (1, 2, 0))  # CHW to HWC
+                        print(f"Frame shape after transpose: {f.shape}, dtype: {f.dtype}")
+
+                        f = (f * 255).astype(np.uint8)
+                        print(f"Frame dtype after scaling: {f.dtype}")
+                        f = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
+                        if f.shape[:2] != (height, width):
+                            print("Resizing frame to match VideoWriter dimensions.")
+                            f = cv2.resize(f, (width, height))
+                        f = draw_boxes(f, output_tensor, labels)
+                        out.write(f)  # Write to the video file
                     
                     frames = []
                     frame_count += batch_size
@@ -158,4 +186,4 @@ if __name__ == "__main__":
     image_width = 416
     batch_size = 4  # Increase the batch size to improve GPU utilization
     labels = load_labels("obj.names")
-    infer_video("./dynamic_tsr_model.trt", "./video_1.MP4", "./output_video2.avi", batch_size, labels)
+    infer_video("./dynamic_tsr_model.trt", "./video_1.MP4", "./output_video_4.avi", batch_size, labels)
