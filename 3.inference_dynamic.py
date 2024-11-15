@@ -6,7 +6,7 @@ import cv2
 import os
 import time
 
-def preprocess_frame_cuda(frame, image_height, image_width):
+def preprocess_frame(frame, image_height, image_width):
     # Upload the frame to the GPU
     gpu_frame = cv2.cuda_GpuMat()
     gpu_frame.upload(frame)
