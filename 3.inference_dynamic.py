@@ -54,16 +54,7 @@ def load_engine(engine_file_path):
     with open(engine_file_path, "rb") as f, trt.Runtime(trt.Logger(trt.Logger.WARNING)) as runtime:
         return runtime.deserialize_cuda_engine(f.read())
 
-# Initialize variables outside the function
-host_inputs = []
-cuda_inputs = []
-host_outputs = []
-cuda_outputs = []
-bindings = []
-
 def infer_video(engine_file_path, input_video, output_video, batch_size, labels):
-    global host_inputs, cuda_inputs, host_outputs, cuda_outputs, bindings
-
     engine = load_engine(engine_file_path)
     cap = cv2.VideoCapture(input_video)
     if not cap.isOpened():
@@ -71,12 +62,15 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
         return
     
     # Get video properties
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if fps == 0.0:
+        print("Warning: FPS is zero. Setting to 30.")
+        fps = 30
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
-    print(fps)
+    print(f'Video properties: fps={fps}, size=({width}, {height})')
 
     # Check if VideoWriter is opened successfully
     if not out.isOpened():
@@ -84,91 +78,64 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
         return
 
     with engine.create_execution_context() as context:
-        input_memory = None
-        output_memory = None
-        output_buffer = None
+        # Allocate memory
+        inputs, outputs, bindings, stream = [], [], [], cuda.Stream()
+        
+        # Get input and output binding indices
+        input_binding_idx = engine.get_binding_index(engine.get_binding_name(0))
+        output_binding_idx = engine.get_binding_index(engine.get_binding_name(1))
+        input_shape = engine.get_binding_shape(input_binding_idx)
+        output_shape = engine.get_binding_shape(output_binding_idx)
+        input_size = trt.volume(input_shape)
+        output_size = trt.volume(output_shape)
+        input_dtype = trt.nptype(engine.get_binding_dtype(input_binding_idx))
+        output_dtype = trt.nptype(engine.get_binding_dtype(output_binding_idx))
+        # Allocate host and device buffers
+        h_input = cuda.pagelocked_empty(input_size, dtype=input_dtype)
+        d_input = cuda.mem_alloc(h_input.nbytes)
+        h_output = cuda.pagelocked_empty(output_size, dtype=output_dtype)
+        d_output = cuda.mem_alloc(h_output.nbytes)
+        bindings = [int(d_input), int(d_output)]
+        
+        frame_count = 0
+        start_time = time.time()
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        for binding in range(engine.num_bindings):
-            shape = engine.get_binding_shape(binding)
-            print(f"Binding {binding} shape: {shape}")
-            if shape[0] == -1:
-                shape[0] = batch_size  # Set dynamic batch size
-            size = trt.volume(shape)
-            dtype = trt.nptype(engine.get_binding_dtype(binding))
-            print(f"Binding {binding}: size={size}, dtype={dtype}")
-            
-            if size < 0:
-                raise ValueError(f"Invalid size {size} for binding {binding}")
+            orig_frame = frame.copy()
 
-            if engine.binding_is_input(binding):
-                host_inputs.append(np.empty(size, dtype=dtype))
-                cuda_inputs.append(cuda.mem_alloc(host_inputs[-1].nbytes))
-                bindings.append(int(cuda_inputs[-1]))
-            else:
-                host_outputs.append(np.empty(size, dtype=dtype))
-                cuda_outputs.append(cuda.mem_alloc(host_outputs[-1].nbytes))
-                bindings.append(int(cuda_outputs[-1]))
-                
-        stream = cuda.Stream()
-        try:
-            frames = []
-            start_time = time.time()
-            frame_count = 0
+            # Preprocess the frame
+            input_frame = preprocess_frame(frame, input_shape[2], input_shape[3])  # Assuming NCHW format
+            np.copyto(h_input, input_frame.ravel())
 
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                # Ensure frame dimensions match VideoWriter dimensions
-                if frame.shape[1] != width or frame.shape[0] != height:
-                    frame = cv2.resize(frame, (width, height))
+            # Transfer input data to the GPU
+            cuda.memcpy_htod_async(d_input, h_input, stream)
+            # Run inference
+            context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
+            # Transfer predictions back from the GPU
+            cuda.memcpy_dtoh_async(h_output, d_output, stream)
+            # Synchronize the stream
+            stream.synchronize()
 
-                input_frame = preprocess_frame(frame, image_height, image_width)
-                frames.append(input_frame)
-                
-                if len(frames) == batch_size:
-                    input_batch = np.vstack(frames)
-                    input_batch = np.ascontiguousarray(input_batch)  # Ensure the array is contiguous
-                    print(f"Input batch shape: {input_batch.shape}")
-                    
-                    # Set input shape explicitly
-                    context.set_binding_shape(0, input_batch.shape)
-                    
-                    if not context.all_binding_shapes_specified:
-                        print("Error: Not all binding shapes are specified.")
-                        return
-                    
-                    cuda.memcpy_htod_async(cuda_inputs[0], input_batch, stream)
-                    context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
-                    cuda.memcpy_dtoh_async(host_outputs[0], cuda_outputs[0], stream)
-                    
-                    # Synchronize the stream
-                    stream.synchronize()
-                    output_d64 = np.array(host_outputs[0], dtype=np.float32)
-                    output_tensor = postprocess_output(output_d64)
+            # Postprocess the output
+            output_tensor = postprocess_output(h_output)
 
-                    # Draw bounding boxes and write frames to the video
-                    for f in frames:
-                        f = np.transpose(f[0], (1, 2, 0))  # CHW to HWC
-                        f = (f * 255).astype(np.uint8)
-                        f = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
-                        draw_boxes(f, output_tensor, labels)
-                        out.write(f)  # Write to the video file
-                    
-                    frames = []
-                    frame_count += batch_size
-                
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            fps = frame_count / elapsed_time
-            print(f"Processed {frame_count} frames in {elapsed_time:.2f} seconds ({fps:.2f} FPS)")
-                
-        except cuda.Error as e:
-            print(f"CUDA Error: {e}")
-        finally:
-            cap.release()
-            out.release()
+            # Draw bounding boxes on the original frame
+            draw_boxes(orig_frame, output_tensor, labels)
+            # Write the frame to the output video
+            out.write(orig_frame)
+
+            frame_count += 1
+
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        fps_actual = frame_count / elapsed_time
+        print(f"Processed {frame_count} frames in {elapsed_time:.2f} seconds ({fps_actual:.2f} FPS)")
+
+    cap.release()
+    out.release()
 
 def load_labels(label_file):
     with open(label_file, 'r') as f:
