@@ -149,6 +149,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     output_tensor = postprocess_output(output_d64)
 
                     # Draw bounding boxes and write frames to the video
+                    print(frames)
                     for f in frames:
                         f = np.transpose(f[0], (1, 2, 0))  # CHW to HWC
                         f = (f * 255).astype(np.uint8)
