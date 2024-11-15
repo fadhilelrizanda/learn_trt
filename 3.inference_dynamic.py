@@ -149,13 +149,12 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     output_tensor = postprocess_output(output_d64)
 
                     # Draw bounding boxes and write frames to the video
-                    print(frames)
                     for f in frames:
                         f = np.transpose(f[0], (1, 2, 0))  # CHW to HWC
                         f = (f * 255).astype(np.uint8)
                         f = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
-                        draw_boxes(f, output_tensor, labels)
-                        out.write(f)  # Write to the video file
+                        fr = draw_boxes(f, output_tensor, labels)
+                        out.write(fr)  # Write to the video file
                     
                     frames = []
                     frame_count += batch_size
