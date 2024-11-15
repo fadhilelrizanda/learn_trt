@@ -74,7 +74,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
     out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
     print(fps)
 
@@ -151,10 +151,16 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     # Draw bounding boxes and write frames to the video
                     for f in frames:
                         f = np.transpose(f[0], (1, 2, 0))  # CHW to HWC
+                        print(f"Frame shape after transpose: {f.shape}, dtype: {f.dtype}")
+
                         f = (f * 255).astype(np.uint8)
+                        print(f"Frame dtype after scaling: {f.dtype}")
                         f = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
-                        fr = draw_boxes(f, output_tensor, labels)
-                        out.write(fr)  # Write to the video file
+                        if f.shape[:2] != (height, width):
+                            print("Resizing frame to match VideoWriter dimensions.")
+                            f = cv2.resize(f, (width, height))
+                        f = draw_boxes(f, output_tensor, labels)
+                        out.write(f)  # Write to the video file
                     
                     frames = []
                     frame_count += batch_size
