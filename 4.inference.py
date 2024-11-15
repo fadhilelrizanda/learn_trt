@@ -17,7 +17,7 @@ def preprocess_frame_cuda(frame, image_height, image_width):
     gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
 
     # Normalize by dividing by 255 and convert to float32
-    gpu_rgb = gpu_rgb.convertTo(cv2.CV_32F, scale=1/255.0)
+    gpu_rgb = gpu_rgb.convertTo(cv2.CV_32F, 1/255.0)
 
     # Split channels for CHW format
     gpu_channels = cv2.cuda.split(gpu_rgb)
