@@ -16,11 +16,11 @@ def preprocess_frame_cuda(frame, image_height, image_width):
     gpu_resized = cv2.cuda.resize(gpu_frame, (image_width, image_height))
     gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
 
-    # Create an output GpuMat for the normalized frame
+    # Create an output GpuMat for the normalized frame with CV_32F type
     gpu_normalized = cv2.cuda_GpuMat(gpu_rgb.size(), cv2.CV_32F)
 
-    # Normalize by dividing by 255 and convert to float32 using alpha and beta
-    gpu_rgb.convertTo(gpu_normalized, cv2.CV_32F, 1/255.0, 0.0)  # alpha=1/255.0, beta=0
+    # Normalize by dividing by 255 using alpha for scaling
+    gpu_rgb.convertTo(gpu_normalized, alpha=1/255.0)
 
     # Split channels for CHW format
     gpu_channels = cv2.cuda.split(gpu_normalized)
