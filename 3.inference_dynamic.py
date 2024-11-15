@@ -77,6 +77,11 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
 
+    # Check if VideoWriter is opened successfully
+    if not out.isOpened():
+        print("Error: Could not open VideoWriter.")
+        return
+
     with engine.create_execution_context() as context:
         input_memory = None
         output_memory = None
@@ -114,6 +119,10 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                 if not ret:
                     break
                 
+                # Ensure frame dimensions match VideoWriter dimensions
+                if frame.shape[1] != width or frame.shape[0] != height:
+                    frame = cv2.resize(frame, (width, height))
+
                 input_frame = preprocess_frame(frame, image_height, image_width)
                 frames.append(input_frame)
                 
@@ -129,14 +138,6 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                         print("Error: Not all binding shapes are specified.")
                         return
                     
-                    # Check if there are multiple profiles
-                    num_profiles = engine.num_optimization_profiles
-                    print(f"Number of optimization profiles: {num_profiles}")
-        
-                    # Assuming we use the first optimization profile (index 0)
-                    profile_index = 0
-                    context.set_optimization_profile_async(profile_index, stream.handle)
-                    
                     cuda.memcpy_htod_async(cuda_inputs[0], input_batch, stream)
                     context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
                     cuda.memcpy_dtoh_async(host_outputs[0], cuda_outputs[0], stream)
@@ -144,17 +145,15 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     # Synchronize the stream
                     stream.synchronize()
                     output_d64 = np.array(host_outputs[0], dtype=np.float32)
-                    # print(f"Output buffer shape: {output_d64.shape}")
                     output_tensor = postprocess_output(output_d64)
-                    # print("Output tensor:", output_tensor)
-                    
-                    # Draw bounding boxes on the frames
+
+                    # Draw bounding boxes and write frames to the video
                     for f in frames:
                         f = np.transpose(f[0], (1, 2, 0))  # CHW to HWC
                         f = (f * 255).astype(np.uint8)
                         f = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
                         draw_boxes(f, output_tensor, labels)
-                        out.write(f)
+                        out.write(f)  # Write to the video file
                     
                     frames = []
                     frame_count += batch_size
