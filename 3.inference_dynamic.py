@@ -66,7 +66,7 @@ bindings = []
 
 def infer_video(engine_file_path, input_video, output_video, batch_size, labels):
     global host_inputs, cuda_inputs, host_outputs, cuda_outputs, bindings
-
+    write_video = False
     engine = load_engine(engine_file_path)
     cap = cv2.VideoCapture(input_video)
     if not cap.isOpened():
@@ -188,5 +188,4 @@ if __name__ == "__main__":
     image_width = 416
     batch_size = 1  # Increase the batch size to improve GPU utilization
     labels = load_labels("obj.names")
-    write_video = False
     infer_video("./dynamic_tsr_model.trt", "./video_1.MP4", "./output_video.avi", batch_size, labels)
