@@ -78,7 +78,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
+    out = cv2.VideoWriter(output_video, fourcc, fps, (image_width, image_height))
     print(fps)
 
     # Check if VideoWriter is opened successfully
