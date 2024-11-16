@@ -148,19 +148,20 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     output_d64 = np.array(host_outputs[0], dtype=np.float32)
                     output_tensor = postprocess_output(output_d64)
 
-                    # Draw bounding boxes and write frames to the video
-                    for f in frames:
-                        f = np.transpose(f[0], (1, 2, 0))  # CHW to HWC
-                        print(f"Frame shape after transpose: {f.shape}, dtype: {f.dtype}")
+                    # Draw bounding boxes and write frames to the video'
+                    if write_video:
+                        for f in frames:
+                            f = np.transpose(f[0], (1, 2, 0))  # CHW to HWC
+                            print(f"Frame shape after transpose: {f.shape}, dtype: {f.dtype}")
 
-                        f = (f * 255).astype(np.uint8)
-                        print(f"Frame dtype after scaling: {f.dtype}")
-                        f = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
-                        if f.shape[:2] != (height, width):
-                            print("Resizing frame to match VideoWriter dimensions.")
-                            f = cv2.resize(f, (width, height))
-                        f = draw_boxes(f, output_tensor, labels)
-                        out.write(f)  # Write to the video file
+                            f = (f * 255).astype(np.uint8)
+                            print(f"Frame dtype after scaling: {f.dtype}")
+                            f = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
+                            if f.shape[:2] != (image_height, image_width):
+                                print("Resizing frame to match VideoWriter dimensions.")
+                                f = cv2.resize(f, (width, height))
+                            f = draw_boxes(f, output_tensor, labels)
+                            out.write(f)  # Write to the video file
                     
                     frames = []
                     frame_count += batch_size
@@ -174,7 +175,8 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
             print(f"CUDA Error: {e}")
         finally:
             cap.release()
-            out.release()
+            if write_video:
+                out.release()
 
 def load_labels(label_file):
     with open(label_file, 'r') as f:
@@ -186,4 +188,5 @@ if __name__ == "__main__":
     image_width = 416
     batch_size = 1  # Increase the batch size to improve GPU utilization
     labels = load_labels("obj.names")
+    write_video = False
     infer_video("./dynamic_tsr_model.trt", "./video_1.MP4", "./output_video.avi", batch_size, labels)
