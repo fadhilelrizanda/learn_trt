@@ -18,7 +18,7 @@ def preprocess_frame(frame, image_height, image_width):
     gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
     
     # Download the processed image back to the host (if TensorRT expects host memory)
-    gpu_normalized = cv2.cuda.divide(gpu_rgb,255.0)
+    gpu_normalized = cv2.cuda.divideWithScalar(gpu_rgb,255.0)
     # Normalize and prepare tensor
     # frame = frame.astype(np.float32)
     # frame = frame / 255.0
