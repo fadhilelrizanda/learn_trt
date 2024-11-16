@@ -107,7 +107,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                 # bindings.append(int(cuda_inputs[-1]))
             else:
                 output_size= np.empty(size,dtype=dtype).nbytes
-                output_buffer =cuda.mem_alloc(input_size)
+                output_buffer =cuda.mem_alloc(output_size)
                 host_outputs.append(np.empty(size, dtype=dtype))
                 cuda_outputs.append(output_buffer)  # Use preallocated buffer directly
 
