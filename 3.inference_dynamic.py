@@ -18,11 +18,14 @@ def preprocess_frame(frame, image_height, image_width):
     gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
     
     # Download the processed image back to the host (if TensorRT expects host memory)
-    frame = gpu_rgb.download()
-    
+    gpu_normalized = cv2.cuda.divide(gpu_rgb,255.0)
     # Normalize and prepare tensor
-    frame = frame.astype(np.float32)
-    frame = frame / 255.0
+    # frame = frame.astype(np.float32)
+    # frame = frame / 255.0
+    
+    frame = gpu_normalized.download()      
+    if frame.dtype !=np.float32:
+        frame = frame.astype(np.float32)
     frame = np.transpose(frame, (2, 0, 1))  # HWC to CHW
     frame = np.expand_dims(frame, axis=0)  # Add batch dimension
     
@@ -84,10 +87,6 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
         return
 
     with engine.create_execution_context() as context:
-        input_memory = None
-        output_memory = None
-        output_buffer = None
-
         for binding in range(engine.num_bindings):
             shape = engine.get_binding_shape(binding)
             print(f"Binding {binding} shape: {shape}")
@@ -101,14 +100,19 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                 raise ValueError(f"Invalid size {size} for binding {binding}")
 
             if engine.binding_is_input(binding):
+                input_size= np.empty(size,dtype=dtype).nbytes
+                input_buffer =cuda.mem_alloc(input_size)
                 host_inputs.append(np.empty(size, dtype=dtype))
-                cuda_inputs.append(cuda.mem_alloc(host_inputs[-1].nbytes))
-                bindings.append(int(cuda_inputs[-1]))
+                cuda_inputs.append(input_buffer)  # Use preallocated buffer directly
+                # bindings.append(int(cuda_inputs[-1]))
             else:
+                output_size= np.empty(size,dtype=dtype).nbytes
+                output_buffer =cuda.mem_alloc(input_size)
                 host_outputs.append(np.empty(size, dtype=dtype))
-                cuda_outputs.append(cuda.mem_alloc(host_outputs[-1].nbytes))
-                bindings.append(int(cuda_outputs[-1]))
-                
+                cuda_outputs.append(output_buffer)  # Use preallocated buffer directly
+
+                # bindings.append(int(cuda_outputs[-1]))
+            bindings.append(int(input_buffer if engine.binding_is_input(binding) else output_buffer))
         stream = cuda.Stream()
         try:
             frames = []
@@ -120,10 +124,6 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                 if not ret:
                     break
                 
-                # Ensure frame dimensions match VideoWriter dimensions
-                if frame.shape[1] != width or frame.shape[0] != height:
-                    frame = cv2.resize(frame, (width, height))
-
                 input_frame = preprocess_frame(frame, image_height, image_width)
                 frames.append(input_frame)
                 
