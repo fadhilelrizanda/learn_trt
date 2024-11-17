@@ -6,40 +6,42 @@ import cv2
 import os
 import time
 
-def preprocess_frame_optimized(frame, image_height, image_width, gpu_frame=None, gpu_buffer=None):
+def preprocess_frame_optimized(frame, image_height, image_width, gpu_frame=None, gpu_resized=None, gpu_rgb=None, gpu_normalized=None):
     s_time = time.time()
 
-    # Allocate GPU memory only once
+    # Allocate GPU memory only once for the input frame
     if gpu_frame is None:
         gpu_frame = cv2.cuda_GpuMat()  # GPU memory for the input frame
     gpu_frame.upload(frame)
 
-    # Create a buffer for intermediate results if not already allocated
-    if gpu_buffer is None:
-        gpu_buffer = cv2.cuda_GpuMat()  # GPU memory for intermediate processing
+    # Allocate GPU memory for intermediate buffers only once
+    if gpu_resized is None:
+        gpu_resized = cv2.cuda_GpuMat()  # GPU memory for resized frame
+    if gpu_rgb is None:
+        gpu_rgb = cv2.cuda.GpuMat()  # GPU memory for RGB converted frame
+    if gpu_normalized is None:
+        gpu_normalized = cv2.cuda.GpuMat()  # GPU memory for normalized frame
 
-    # Resize (resized result stored in gpu_buffer)
-    cv2.cuda.resize(gpu_frame, (image_width, image_height), dst=gpu_buffer)
+    # Resize on the GPU
+    cv2.cuda.resize(gpu_frame, (image_width, image_height), dst=gpu_resized)
 
-    # Ensure the resized frame has 3 channels
-    if gpu_buffer.channels() != 3:
-        raise ValueError(f"Unexpected channel count: {gpu_buffer.channels()} (expected 3)")
+    # Convert color space on the GPU (BGR to RGB)
+    cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB, dst=gpu_rgb)
 
-    # Convert color space (BGR to RGB)
-    gpu_rgb = cv2.cuda.cvtColor(gpu_buffer, cv2.COLOR_BGR2RGB)
+    # Normalize on the GPU (divide by 255.0)
+    cv2.cuda.divideWithScalar(gpu_rgb, 255.0, dst=gpu_normalized)
 
-    # Normalize (divide by 255 in-place to save memory)
-    gpu_normalized = cv2.cuda.divideWithScalar(gpu_rgb, 255.0)
+    # Download the processed image back to the host (TensorRT expects host memory)
+    frame = gpu_normalized.download()
 
-    # Download the processed frame from GPU
-    processed_frame = gpu_normalized.download()
-
-    # Reformat frame for TensorRT (HWC -> CHW, Add batch dimension)
-    processed_frame = np.transpose(processed_frame, (2, 0, 1))  # HWC to CHW
-    processed_frame = np.expand_dims(processed_frame, axis=0)    # Add batch dimension
+    # Ensure the frame is in the correct format (HWC -> CHW, Add batch dimension)
+    if frame.dtype != np.float32:
+        frame = frame.astype(np.float32)
+    frame = np.transpose(frame, (2, 0, 1))  # HWC to CHW
+    frame = np.expand_dims(frame, axis=0)  # Add batch dimension
 
     print(f"Preprocessing time: {time.time() - s_time:.3f}s")
-    return processed_frame.astype(np.float32), gpu_frame, gpu_buffer
+    return frame, gpu_frame, gpu_resized, gpu_rgb, gpu_normalized
 
 
 def postprocess_output(output, conf_threshold=0.5):
