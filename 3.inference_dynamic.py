@@ -147,7 +147,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                 if not ret:
                     break
                 
-                input_frame = preprocess_frame(frame, image_height, image_width)
+                input_frame = preprocess_frame_cpu(frame, image_height, image_width)
                 frames.append(input_frame)
                 
                 if len(frames) == batch_size:
