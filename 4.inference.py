@@ -18,15 +18,21 @@ def preprocess_frame_to_gpu(frame, image_height, image_width, input_buffer):
     gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
 
     # Normalize on GPU (divide by 255)
-    gpu_normalized = cv2.cuda.divideWithScalar(gpu_rgb, 255.0)
+    gpu_normalized = cv2.cuda.divide(gpu_rgb, 255.0)
 
-    # Convert to CHW format for TensorRT
-    gpu_chw = cv2.cuda_GpuMat()
-    gpu_chw.create((3, image_height * image_width), cv2.CV_32F)
-    cv2.cuda.split(gpu_normalized, gpu_chw)  # Split into CHW format
+    # Prepare for CHW conversion
+    gpu_channels = [cv2.cuda_GpuMat() for _ in range(3)]  # Create a list of GpuMat for channels
 
-    # Copy preprocessed data to TensorRT input buffer
-    cuda.memcpy_htod_async(input_buffer, gpu_chw.download())
+    # Split into channels (HWC to CHW)
+    cv2.cuda.split(gpu_normalized, gpu_channels)
+
+    # Combine channels into a single tensor
+    chw_frame = np.zeros((3, image_height, image_width), dtype=np.float32)
+    for i, channel in enumerate(gpu_channels):
+        chw_frame[i, :, :] = channel.download()  # Download each channel to the CPU
+
+    # Copy to TensorRT input buffer
+    cuda.memcpy_htod_async(input_buffer, chw_frame)
 
 def postprocess_output(output, conf_threshold=0.5):
     # Assuming the output is a tensor with shape (batch_size, num_boxes, 7)
