@@ -144,6 +144,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                         print("Error: Not all binding shapes are specified.")
                         return
                     
+                    s_time = time.time()
                     cuda.memcpy_htod_async(cuda_inputs[0], input_batch, input_stream)
                     context.execute_async_v2(bindings=bindings, stream_handle=input_stream.handle)
                     cuda.memcpy_dtoh_async(host_outputs[0], cuda_outputs[0], output_stream)
@@ -152,6 +153,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     input_stream.synchronize()
                     output_stream.synchronize()
                     output_d64 = np.array(host_outputs[0], dtype=np.float32)
+                    print(time.time()-s_time)
                     output_tensor = postprocess_output(output_d64)
 
                     # Draw bounding boxes and write frames to the video'
