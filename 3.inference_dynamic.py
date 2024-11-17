@@ -12,23 +12,25 @@ def preprocess_frame(frame, image_height, image_width):
     gpu_frame = cv2.cuda_GpuMat()
     gpu_frame.upload(frame)
     
-    # Resize and normalize on the GPU
+    # Resize on the GPU
     gpu_resized = cv2.cuda.resize(gpu_frame, (image_width, image_height))
-    gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
-    gpu_normalized = cv2.cuda.divide(gpu_rgb, 255.0)
-
-    # Convert to TensorRT-compatible format directly on the GPU
-    chw_gpu_frame = cv2.cuda_GpuMat()
-    chw_gpu_frame.create((3, image_height * image_width), cv2.CV_32F)
-    cv2.cuda.split(gpu_normalized, chw_gpu_frame)  # Split channels (HWC to CHW)
     
-    # Transfer only once if TensorRT expects host memory
-    chw_frame = chw_gpu_frame.download()
-    chw_frame = chw_frame.reshape(3, image_height, image_width)  # Reshape to CHW
-    chw_frame = np.expand_dims(chw_frame, axis=0)  # Add batch dimension
+    # Convert color space on the GPU (BGR to RGB)
+    gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
+    
+    # Download the processed image back to the host (if TensorRT expects host memory)
+    gpu_normalized = cv2.cuda.divideWithScalar(gpu_rgb,255.0)
+    # Normalize and prepare tensor
+    # frame = frame.astype(np.float32)
+    # frame = frame / 255.0
+    
+    frame = gpu_normalized.download()      
+    if frame.dtype !=np.float32:
+        frame = frame.astype(np.float32)
+    frame = np.transpose(frame, (2, 0, 1))  # HWC to CHW
+    frame = np.expand_dims(frame, axis=0)  # Add batch dimension
     print(time.time()-s_time)
-    return chw_frame.astype(np.float32)
-
+    return frame
 
 # Postprocess the output tensor to extract bounding boxes
 def postprocess_output(output, conf_threshold=0.5):
