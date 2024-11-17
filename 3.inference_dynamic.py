@@ -43,18 +43,26 @@ def preprocess_frame_cpu(frame, image_height, image_width):
     print(f"Preprocessing time (CPU): {time.time() - s_time:.3f}s")
     return frame
 # Postprocess the output tensor to extract bounding boxes
+
 def postprocess_output(output, conf_threshold=0.5):
     s_time = time.time()
-    # Assuming the output is a tensor with shape (batch_size, num_boxes, 7)
-    # where each box has 7 values: [x, y, w, h, conf, class_id, ...]
+
+    # Reshape the output tensor
     output = np.reshape(output, (-1, 7))
-    boxes = []
-    for detection in output:
-        x, y, w, h, conf, class_id = detection[:6]
-        if conf > conf_threshold:
-            boxes.append((int(x), int(y), int(w), int(h), conf, int(class_id)))
+
+    # Filter detections based on confidence threshold
+    mask = output[:, 4] > conf_threshold  # Confidence is at index 4
+    filtered_detections = output[mask]
+
+    # Extract and convert relevant fields
+    boxes = [
+        (int(x), int(y), int(w), int(h), conf, int(class_id))
+        for x, y, w, h, conf, class_id in filtered_detections[:, :6]
+    ]
+
     print(f"postprocess : {time.time() - s_time:.3f}")
     return boxes
+
 
 # Draw bounding boxes on the frame
 def draw_boxes(frame, boxes, labels):
