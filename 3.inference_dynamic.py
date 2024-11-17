@@ -5,6 +5,7 @@ import numpy as np
 import cv2
 import os
 import time
+import torch
 
 def preprocess_frame(frame, image_height, image_width):
     # Upload the frame to the GPU
@@ -24,13 +25,8 @@ def preprocess_frame(frame, image_height, image_width):
     # frame = frame / 255.0
     
     frame = gpu_normalized.download()      
-    if frame.dtype !=np.float32:
-        frame = frame.astype(np.float32)
-    frame = np.transpose(frame, (2, 0, 1))  # HWC to CHW
-    frame = np.expand_dims(frame, axis=0)  # Add batch dimension
-    
-    return frame
-
+    tensor = torch.from_numpy(frame).permute(2,0,1).unsqueeze(0).cuda()
+    return tensor.float()
 # Postprocess the output tensor to extract bounding boxes
 def postprocess_output(output, conf_threshold=0.5):
     # Assuming the output is a tensor with shape (batch_size, num_boxes, 7)
@@ -126,7 +122,8 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                 if not ret:
                     break
                 
-                input_frame = preprocess_frame(frame, image_height, image_width)
+                input_frame_tensor=preprocess_frame(frame, image_height, image_width)
+                input_frame = input_frame_tensor.cpu().numpy()
                 frames.append(input_frame)
                 
                 if len(frames) == batch_size:
