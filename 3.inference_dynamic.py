@@ -7,6 +7,7 @@ import os
 import time
 
 def preprocess_frame(frame, image_height, image_width):
+    s_time = time.time()
     # Upload the frame to the GPU
     gpu_frame = cv2.cuda_GpuMat()
     gpu_frame.upload(frame)
@@ -28,11 +29,12 @@ def preprocess_frame(frame, image_height, image_width):
         frame = frame.astype(np.float32)
     frame = np.transpose(frame, (2, 0, 1))  # HWC to CHW
     frame = np.expand_dims(frame, axis=0)  # Add batch dimension
-    
+    print(time.time-s_time)
     return frame
 
 # Postprocess the output tensor to extract bounding boxes
 def postprocess_output(output, conf_threshold=0.5):
+    s_time = time.time()
     # Assuming the output is a tensor with shape (batch_size, num_boxes, 7)
     # where each box has 7 values: [x, y, w, h, conf, class_id, ...]
     output = np.reshape(output, (-1, 7))
@@ -41,6 +43,7 @@ def postprocess_output(output, conf_threshold=0.5):
         x, y, w, h, conf, class_id = detection[:6]
         if conf > conf_threshold:
             boxes.append((int(x), int(y), int(w), int(h), conf, int(class_id)))
+    print(time.time() - s_time)
     return boxes
 
 # Draw bounding boxes on the frame
