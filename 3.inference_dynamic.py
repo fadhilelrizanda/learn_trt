@@ -29,7 +29,7 @@ def preprocess_frame(frame, image_height, image_width):
         frame = frame.astype(np.float32)
     frame = np.transpose(frame, (2, 0, 1))  # HWC to CHW
     frame = np.expand_dims(frame, axis=0)  # Add batch dimension
-    print(time.time-s_time)
+    print(time.time()-s_time)
     return frame
 
 # Postprocess the output tensor to extract bounding boxes
