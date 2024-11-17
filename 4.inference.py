@@ -77,10 +77,9 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
         
         # Allocate memory for TensorRT buffers
         input_shape = tuple(context.get_binding_shape(0))
-        input_size = np.prod(input_shape) * np.dtype(np.float32).itemsize
-
+        input_size = int(np.prod(input_shape) * np.dtype(np.float32).itemsize)  # Ensure Python int
         output_shape = tuple(context.get_binding_shape(1))
-        output_size = np.prod(output_shape) * np.dtype(np.float32).itemsize
+        output_size = int(np.prod(output_shape) * np.dtype(np.float32).itemsize)  # Ensure Python int
 
         input_buffer = cuda.mem_alloc(input_size)
         output_buffer = cuda.mem_alloc(output_size)
