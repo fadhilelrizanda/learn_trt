@@ -21,14 +21,18 @@ def preprocess_frame_optimized(frame, image_height, image_width, gpu_frame=None,
     # Resize (resized result stored in gpu_buffer)
     cv2.cuda.resize(gpu_frame, (image_width, image_height), dst=gpu_buffer)
 
+    # Ensure the resized frame has 3 channels
+    if gpu_buffer.channels() != 3:
+        raise ValueError(f"Unexpected channel count: {gpu_buffer.channels()} (expected 3)")
+
     # Convert color space (BGR to RGB)
-    gpu_buffer = cv2.cuda.cvtColor(gpu_buffer, cv2.COLOR_BGR2RGB)
+    gpu_rgb = cv2.cuda.cvtColor(gpu_buffer, cv2.COLOR_BGR2RGB)
 
     # Normalize (divide by 255 in-place to save memory)
-    gpu_buffer = cv2.cuda.divideWithScalar(gpu_buffer, 255.0)
+    gpu_normalized = cv2.cuda.divideWithScalar(gpu_rgb, 255.0)
 
     # Download the processed frame from GPU
-    processed_frame = gpu_buffer.download()
+    processed_frame = gpu_normalized.download()
 
     # Reformat frame for TensorRT (HWC -> CHW, Add batch dimension)
     processed_frame = np.transpose(processed_frame, (2, 0, 1))  # HWC to CHW
@@ -36,7 +40,8 @@ def preprocess_frame_optimized(frame, image_height, image_width, gpu_frame=None,
 
     print(f"Preprocessing time: {time.time() - s_time:.3f}s")
     return processed_frame.astype(np.float32), gpu_frame, gpu_buffer
-# Postprocess the output tensor to extract bounding boxes
+
+
 def postprocess_output(output, conf_threshold=0.5):
     s_time = time.time()
     # Assuming the output is a tensor with shape (batch_size, num_boxes, 7)
