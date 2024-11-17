@@ -18,7 +18,7 @@ def preprocess_frame_to_gpu(frame, image_height, image_width, input_buffer):
     gpu_rgb = cv2.cuda.cvtColor(gpu_resized, cv2.COLOR_BGR2RGB)
 
     # Normalize on GPU (divide by 255)
-    gpu_normalized = cv2.cuda.divide(gpu_rgb, 255.0)
+    gpu_normalized = cv2.cuda.divideWithScalar(gpu_rgb, 255.0)
 
     # Convert to CHW format for TensorRT
     gpu_chw = cv2.cuda_GpuMat()
