@@ -29,7 +29,7 @@ def preprocess_frame(frame, image_height, image_width):
         frame = frame.astype(np.float32)
     frame = np.transpose(frame, (2, 0, 1))  # HWC to CHW
     frame = np.expand_dims(frame, axis=0)  # Add batch dimension
-    print(f"preprocess gpu : {time.time()-s_time}")
+    print(f"preprocess gpu : {time.time() - s_time:.3f}")
     return frame
 
 
@@ -53,7 +53,7 @@ def postprocess_output(output, conf_threshold=0.5):
         x, y, w, h, conf, class_id = detection[:6]
         if conf > conf_threshold:
             boxes.append((int(x), int(y), int(w), int(h), conf, int(class_id)))
-    print(f"postprocess : {time.time() - s_time}")
+    print(f"postprocess : {time.time() - s_time:.3f}")
     return boxes
 
 # Draw bounding boxes on the frame
@@ -163,7 +163,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                     input_stream.synchronize()
                     output_stream.synchronize()
                     output_d64 = np.array(host_outputs[0], dtype=np.float32)
-                    print(f"Model : {time.time()-s_time}")
+                    print(f"Model : {time.time() - s_time:.3f}")
                     output_tensor = postprocess_output(output_d64)
 
                     # Draw bounding boxes and write frames to the video'
