@@ -32,6 +32,16 @@ def preprocess_frame(frame, image_height, image_width):
     print(time.time()-s_time)
     return frame
 
+
+def preprocess_frame_cpu(frame, image_height, image_width):
+    s_time = time.time()
+    resized = cv2.resize(frame, (image_width, image_height))  # Resize on CPU
+    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)            # Convert color
+    normalized = rgb.astype(np.float32) / 255.0              # Normalize
+    frame = np.transpose(normalized, (2, 0, 1))              # HWC to CHW
+    frame = np.expand_dims(frame, axis=0)                    # Add batch dimension
+    print(f"Preprocessing time (CPU): {time.time() - s_time:.3f}s")
+    return frame
 # Postprocess the output tensor to extract bounding boxes
 def postprocess_output(output, conf_threshold=0.5):
     s_time = time.time()
@@ -129,7 +139,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                 if not ret:
                     break
                 
-                input_frame = preprocess_frame(frame, image_height, image_width)
+                input_frame = preprocess_frame_cpu(frame, image_height, image_width)
                 frames.append(input_frame)
                 
                 if len(frames) == batch_size:
