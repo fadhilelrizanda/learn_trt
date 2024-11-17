@@ -72,9 +72,15 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
         return
 
     with engine.create_execution_context() as context:
+        # Set input dimensions explicitly
+        context.set_binding_shape(0, (batch_size, 3, image_height, image_width))
+        
         # Allocate memory for TensorRT buffers
-        input_size = np.prod((batch_size, 3, image_height, image_width)) * np.dtype(np.float32).itemsize
-        output_size = np.prod(context.get_binding_shape(1)) * np.dtype(np.float32).itemsize
+        input_shape = tuple(context.get_binding_shape(0))
+        input_size = np.prod(input_shape) * np.dtype(np.float32).itemsize
+
+        output_shape = tuple(context.get_binding_shape(1))
+        output_size = np.prod(output_shape) * np.dtype(np.float32).itemsize
 
         input_buffer = cuda.mem_alloc(input_size)
         output_buffer = cuda.mem_alloc(output_size)
@@ -100,7 +106,7 @@ def infer_video(engine_file_path, input_video, output_video, batch_size, labels)
                 context.execute_v2(bindings=bindings)
 
                 # Transfer output back to CPU
-                output_host = np.empty(context.get_binding_shape(1), dtype=np.float32)
+                output_host = np.empty(output_shape, dtype=np.float32)
                 cuda.memcpy_dtoh_async(output_host, output_buffer, output_stream)
                 cuda.Stream().synchronize()
 
